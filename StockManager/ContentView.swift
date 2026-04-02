@@ -674,7 +674,9 @@ private struct DrawerPanel: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
+            #if os(iOS)
             .environment(\.editMode, .constant(store.boardEditMode ? .active : .inactive))
+            #endif
             .tutorialTarget(.boardList)
 
             drawerBottomBar
@@ -682,7 +684,7 @@ private struct DrawerPanel: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(
             RoundedRectangle(cornerRadius: 0)
-                .fill(Color(uiColor: .systemBackground))
+                .fill(Color.platformSystemBackground)
         )
     }
 
@@ -1248,7 +1250,7 @@ private struct BoardFormSheet: View {
                 }
             }
             .navigationTitle(state.mode == .add ? "ボード追加" : "ボード名変更")
-            .navigationBarTitleDisplayMode(.inline)
+            .platformInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("キャンセル") {
@@ -1297,7 +1299,7 @@ private struct ItemFormSheet: View {
                 }
             }
             .navigationTitle(state.mode.title)
-            .navigationBarTitleDisplayMode(.inline)
+            .platformInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("キャンセル") {
@@ -1345,7 +1347,7 @@ private struct DeleteAllDataSheet: View {
             }
             .padding(24)
             .navigationTitle("データ削除")
-            .navigationBarTitleDisplayMode(.inline)
+            .platformInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("キャンセル") {
@@ -1383,7 +1385,7 @@ private struct InfoTextSheet: View {
                     .padding(20)
             }
             .navigationTitle(kind.title)
-            .navigationBarTitleDisplayMode(.inline)
+            .platformInlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("閉じる") {
@@ -1454,6 +1456,14 @@ private struct TutorialTargetModifier: ViewModifier {
 private extension View {
     func tutorialTarget(_ target: TutorialTargetID?) -> some View {
         modifier(TutorialTargetModifier(target: target))
+    }
+
+    func platformInlineNavigationTitle() -> some View {
+        #if os(iOS)
+        navigationBarTitleDisplayMode(.inline)
+        #else
+        self
+        #endif
     }
 }
 
