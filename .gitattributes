@@ -1,0 +1,5 @@
+* text=auto
+*.kt text eol=crlf
+*.kts text eol=crlf
+*.xml text eol=crlf
+*.gradle text eol=crlf

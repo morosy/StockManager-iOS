@@ -1,0 +1,58 @@
+# Xcode
+build/
+DerivedData/
+*.xcworkspace
+!default.xcworkspace
+*.xcuserstate
+*.xcscmblueprint
+
+# User settings
+xcuserdata/
+*.xcuserdatad/
+*.xccheckout
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+
+# CocoaPods
+Pods/
+
+# Carthage
+Carthage/Build/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+
+# Archives
+*.xcarchive
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# Temporary
+*.swp
+*.lock
+
+# App artifacts
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# Environment
+.env
+
+

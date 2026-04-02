@@ -13,6 +13,21 @@ import UIKit
 import AppKit
 #endif
 
+private enum StockManagerTheme {
+    static let page = Color(red: 0.985, green: 0.982, blue: 0.992)
+    static let surface = Color.white
+    static let lavender = Color(red: 0.47, green: 0.35, blue: 0.76)
+    static let lavenderSoft = Color(red: 0.93, green: 0.90, blue: 0.97)
+    static let lavenderSurface = Color(red: 0.96, green: 0.94, blue: 0.98)
+    static let shadow = Color.black.opacity(0.10)
+    static let highlightedFill = Color(red: 1.0, green: 0.97, blue: 0.77)
+    static let highlightedStroke = Color(red: 0.98, green: 0.85, blue: 0.32)
+    static let highlightedText = Color(red: 0.88, green: 0.56, blue: 0.10)
+    static let outFill = Color(red: 0.97, green: 0.86, blue: 0.86)
+    static let outText = Color(red: 0.82, green: 0.31, blue: 0.26)
+    static let stockStroke = Color.black.opacity(0.10)
+}
+
 struct ContentView: View {
     @EnvironmentObject private var store: StockManagerStore
     @Environment(\.openURL) private var openURL
@@ -42,120 +57,16 @@ struct ContentView: View {
         ZStack(alignment: .leading) {
             backgroundView
 
-            mainContent
-                .coordinateSpace(name: "StockManagerRootSpace")
-                .onPreferenceChange(TutorialTargetPreferenceKey.self) { tutorialFrames = $0 }
-                .disabled(store.drawerOpen || store.shoppingState != nil || store.tutorialIsPresented)
-                .blur(radius: store.drawerOpen ? 1.5 : 0)
-
-            if store.drawerOpen {
-                Color.black.opacity(0.28)
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            store.drawerOpen = false
-                            store.boardEditMode = false
-                        }
-                    }
-
-                DrawerPanel(
-                    onExportJSON: { prepareExport(.json) },
-                    onExportCSV: { prepareExport(.csv) },
-                    onImport: { importPresented = true },
-                    onOpenTemplate: { openExternalURL("https://morosy.github.io/sm_template_maker.html") },
-                    onOpenContact: { openExternalURL("https://morosy.github.io/contact.html") },
-                    onOpenTutorial: { store.startTutorial() },
-                    onOpenInfo: { infoSheetKind = $0 },
-                    onAddBoard: { boardFormState = BoardFormState(mode: .add, initialName: "") },
-                    onDeleteBoard: { pendingBoardDeletion = $0 },
-                    onDeleteAll: { deleteAllPresented = true }
-                )
-                .environmentObject(store)
-                .frame(maxWidth: 360)
-                .transition(.move(edge: .leading).combined(with: .opacity))
-                .zIndex(1)
-            }
-
-            if store.shoppingState != nil {
-                Color.black.opacity(0.32)
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        if store.shoppingHasUnsavedChanges() {
-                            discardShoppingPresented = true
-                        } else {
-                            store.closeShoppingOverlayDiscardingChanges()
-                        }
-                    }
-
-                ShoppingListOverlay()
-                    .environmentObject(store)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 32)
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                    .zIndex(2)
-            }
-
-            if let step = store.currentTutorialStep {
-                TutorialOverlay(
-                    step: step,
-                    stepIndex: store.tutorialStepIndex,
-                    stepCount: store.tutorialSteps.count,
-                    targetFrame: step.target.flatMap { tutorialFrames[$0] },
-                    onSkip: { store.stopTutorial() },
-                    onBack: { store.previousTutorialStep() },
-                    onNext: { store.nextTutorialStep() }
-                )
-                .zIndex(3)
-            }
-
-            if let visibleBanner {
-                VStack {
-                    Text(visibleBanner)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 12)
-                        .background(Capsule().fill(Color.black.opacity(0.82)))
-                        .padding(.top, 16)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity)
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .zIndex(4)
+            if store.hasLoadedInitialState {
+                loadedContent
+            } else {
+                loadingView
             }
         }
         .animation(.easeInOut(duration: 0.2), value: store.drawerOpen)
         .animation(.easeInOut(duration: 0.2), value: store.shoppingState != nil)
-        .sheet(item: $boardFormState) { state in
-            BoardFormSheet(state: state) { name in
-                do {
-                    if state.mode == .add {
-                        try store.addBoard(named: name)
-                    } else {
-                        try store.renameCurrentBoard(to: name)
-                    }
-                    boardFormState = nil
-                } catch {
-                    errorMessage = error.localizedDescription
-                }
-            }
-        }
-        .sheet(item: $itemFormState) { state in
-            ItemFormSheet(state: state) { name in
-                do {
-                    switch state.mode {
-                    case .add:
-                        try store.addItem(named: name)
-                    case let .edit(itemID):
-                        try store.renameItem(id: itemID, to: name)
-                    }
-                    itemFormState = nil
-                } catch {
-                    errorMessage = error.localizedDescription
-                }
-            }
+        .task {
+            store.loadInitialStateIfNeeded()
         }
         .sheet(item: $infoSheetKind) { kind in
             InfoTextSheet(kind: kind)
@@ -252,49 +163,208 @@ struct ContentView: View {
         }
     }
 
-    private var backgroundView: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.95, green: 0.96, blue: 0.98),
-                Color(red: 0.88, green: 0.92, blue: 0.96)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .overlay {
-            Circle()
-                .fill(Color.white.opacity(0.45))
-                .frame(width: 240, height: 240)
-                .offset(x: 120, y: -180)
+    private var loadedContent: some View {
+        ZStack(alignment: .leading) {
+            mainContent
+                .coordinateSpace(name: "StockManagerRootSpace")
+                .onPreferenceChange(TutorialTargetPreferenceKey.self) { tutorialFrames = $0 }
+                .disabled(
+                    store.drawerOpen ||
+                    store.shoppingState != nil ||
+                    store.tutorialIsPresented ||
+                    boardFormState != nil ||
+                    itemFormState != nil
+                )
+                .blur(radius: store.drawerOpen ? 1.5 : 0)
+
+            if store.drawerOpen {
+                Color.black.opacity(0.28)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            store.drawerOpen = false
+                            store.boardEditMode = false
+                        }
+                    }
+
+                DrawerPanel(
+                    onExportJSON: { prepareExport(.json) },
+                    onExportCSV: { prepareExport(.csv) },
+                    onImport: { importPresented = true },
+                    onOpenTemplate: { openExternalURL("https://morosy.github.io/sm_template_maker.html") },
+                    onOpenContact: { openExternalURL("https://morosy.github.io/contact.html") },
+                    onOpenTutorial: { store.startTutorial() },
+                    onOpenInfo: { infoSheetKind = $0 },
+                    onAddBoard: { boardFormState = BoardFormState(mode: .add, initialName: "") },
+                    onDeleteBoard: { pendingBoardDeletion = $0 },
+                    onDeleteAll: { deleteAllPresented = true }
+                )
+                .environmentObject(store)
+                .frame(maxWidth: 360)
+                .transition(.move(edge: .leading).combined(with: .opacity))
+                .zIndex(1)
+            }
+
+            if store.shoppingState != nil {
+                Color.black.opacity(0.32)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if store.shoppingHasUnsavedChanges() {
+                            discardShoppingPresented = true
+                        } else {
+                            store.closeShoppingOverlayDiscardingChanges()
+                        }
+                    }
+
+                ShoppingListOverlay()
+                    .environmentObject(store)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 32)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    .zIndex(2)
+            }
+
+            if let step = store.currentTutorialStep {
+                TutorialOverlay(
+                    step: step,
+                    stepIndex: store.tutorialStepIndex,
+                    stepCount: store.tutorialSteps.count,
+                    targetFrame: step.target.flatMap { tutorialFrames[$0] },
+                    onSkip: { store.stopTutorial() },
+                    onBack: { store.previousTutorialStep() },
+                    onNext: { store.nextTutorialStep() }
+                )
+                .zIndex(3)
+            }
+
+            if let boardFormState {
+                modalScrim
+                    .onTapGesture {
+                        self.boardFormState = nil
+                    }
+                    .zIndex(3)
+
+                BoardFormDialog(
+                    state: boardFormState,
+                    onClose: {
+                        self.boardFormState = nil
+                    },
+                    onSave: { name in
+                        do {
+                            if boardFormState.mode == .add {
+                                try store.addBoard(named: name)
+                            } else {
+                                try store.renameCurrentBoard(to: name)
+                            }
+                            self.boardFormState = nil
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                )
+                .padding(.horizontal, 36)
+                .zIndex(4)
+            }
+
+            if let itemFormState {
+                modalScrim
+                    .onTapGesture {
+                        self.itemFormState = nil
+                    }
+                    .zIndex(3)
+
+                ItemFormDialog(
+                    state: itemFormState,
+                    onClose: {
+                        self.itemFormState = nil
+                    },
+                    onSave: { name in
+                        do {
+                            switch itemFormState.mode {
+                            case .add:
+                                try store.addItem(named: name)
+                            case let .edit(itemID):
+                                try store.renameItem(id: itemID, to: name)
+                            }
+                            self.itemFormState = nil
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                )
+                .padding(.horizontal, 36)
+                .zIndex(4)
+            }
+
+            if let visibleBanner {
+                VStack {
+                    Text(visibleBanner)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        .background(Capsule().fill(Color.black.opacity(0.82)))
+                        .padding(.top, 16)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(5)
+            }
         }
+    }
+
+    private var backgroundView: some View {
+        StockManagerTheme.page
         .ignoresSafeArea()
     }
 
-    private var mainContent: some View {
+    private var loadingView: some View {
         VStack(spacing: 16) {
+            Spacer()
+            ProgressView()
+                .controlSize(.large)
+                .tint(StockManagerTheme.lavender)
+            Text("読み込み中...")
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(StockManagerTheme.lavender)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var modalScrim: some View {
+        Color.black.opacity(0.42)
+            .ignoresSafeArea()
+    }
+
+    private var mainContent: some View {
+        VStack(spacing: 14) {
             topBar
             controlArea
             if store.itemEditMode {
                 Text("編集モード: カードをタップして名前変更、右上の x で削除")
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.secondary)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(StockManagerTheme.lavender)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
             }
             boardContent
         }
         .padding(.horizontal, 16)
-        .padding(.top, 20)
+        .padding(.top, 10)
         .safeAreaInset(edge: .bottom) {
             bottomBar
                 .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
-                .background(.ultraThinMaterial)
+                .padding(.top, 8)
+                .padding(.bottom, 10)
         }
     }
 
     private var topBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     store.drawerOpen.toggle()
@@ -303,89 +373,97 @@ struct ContentView: View {
                     }
                 }
             } label: {
-                Circle()
-                    .fill(.ultraThinMaterial)
-                    .frame(width: 44, height: 44)
-                    .overlay {
-                        Image(systemName: "line.3.horizontal")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(Color.primary)
-                    }
+                Image(systemName: "line.3.horizontal")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 40, height: 40)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .tutorialTarget(.menuButton)
             .accessibilityIdentifier("menuButton")
 
-            Spacer(minLength: 0)
-
             Button {
                 boardFormState = BoardFormState(mode: .rename, initialName: store.currentBoard?.name ?? "")
             } label: {
-                VStack(spacing: 4) {
-                    Text(store.currentBoard?.name ?? "ボードなし")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(Color.primary)
-                        .lineLimit(1)
-                    Text("タップして名前変更")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                )
+                Text(store.currentBoard?.name ?? "ボードなし")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
             }
             .buttonStyle(.plain)
             .tutorialTarget(.boardTitle)
-
-            Spacer(minLength: 0)
 
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     store.searchOpen.toggle()
                 }
             } label: {
-                Circle()
-                    .fill(.ultraThinMaterial)
-                    .frame(width: 44, height: 44)
-                    .overlay {
-                        Image(systemName: store.searchOpen ? "xmark" : "magnifyingglass")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(Color.primary)
-                    }
+                Image(systemName: store.searchOpen ? "xmark" : "magnifyingglass")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 40, height: 40)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("searchButton")
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            Capsule(style: .continuous)
+                .fill(StockManagerTheme.lavenderSurface)
+        )
     }
 
     private var controlArea: some View {
         VStack(spacing: 12) {
             if store.searchOpen {
-                TextField(
-                    "アイテムを検索",
-                    text: Binding(
-                        get: { store.settings.query },
-                        set: { store.setQuery($0) }
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(StockManagerTheme.lavender)
+                    TextField(
+                        "アイテムを検索",
+                        text: Binding(
+                            get: { store.settings.query },
+                            set: { store.setQuery($0) }
+                        )
                     )
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    if store.settings.query.isEmpty == false {
+                        Button {
+                            store.setQuery("")
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(StockManagerTheme.surface)
+                        .shadow(color: StockManagerTheme.shadow, radius: 10, x: 0, y: 6)
                 )
-                .textFieldStyle(.roundedBorder)
             }
 
             HStack(spacing: 10) {
                 ToggleChip(
-                    title: "在庫側",
+                    title: "在庫",
                     isOn: store.settings.showStock,
-                    tint: Color(red: 0.18, green: 0.46, blue: 0.76)
+                    tint: StockManagerTheme.lavender
                 ) {
                     store.setShowStock(!store.settings.showStock)
                 }
                 ToggleChip(
-                    title: "欠品側",
+                    title: "欠品",
                     isOn: store.settings.showOut,
-                    tint: Color(red: 0.82, green: 0.24, blue: 0.24)
+                    tint: StockManagerTheme.lavender
                 ) {
                     store.setShowOut(!store.settings.showOut)
                 }
@@ -401,18 +479,20 @@ struct ContentView: View {
                     }
                 } label: {
                     HStack {
-                        Label(store.currentSortMode.title, systemImage: "arrow.up.arrow.down")
+                        Text(store.currentSortMode.title)
+                            .lineLimit(1)
                         Spacer()
                         Image(systemName: "chevron.down")
                             .font(.footnote.weight(.bold))
+                            .foregroundStyle(StockManagerTheme.lavender)
                     }
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color.primary)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 12)
                     .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(.thinMaterial)
+                        Capsule(style: .continuous)
+                            .fill(StockManagerTheme.lavenderSurface)
                     )
                 }
                 .buttonStyle(.plain)
@@ -420,13 +500,13 @@ struct ContentView: View {
                 Button {
                     store.toggleSortModePair()
                 } label: {
-                    Image(systemName: "arrow.left.arrow.right")
+                    Image(systemName: "chevron.down")
                         .font(.headline.weight(.bold))
-                        .foregroundStyle(Color.primary)
-                        .frame(width: 48, height: 48)
+                        .foregroundStyle(StockManagerTheme.lavender)
+                        .frame(width: 44, height: 44)
                         .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(.thinMaterial)
+                            Capsule(style: .continuous)
+                                .fill(StockManagerTheme.lavenderSurface)
                         )
                 }
                 .buttonStyle(.plain)
@@ -493,16 +573,16 @@ struct ContentView: View {
                         .padding(.vertical, 16)
                         .background(
                             Capsule()
-                                .fill(Color(red: 0.16, green: 0.42, blue: 0.71))
+                                .fill(StockManagerTheme.lavender)
                         )
                 }
                 .buttonStyle(.plain)
                 Spacer()
             } else {
                 ActionFAB(
-                    title: "編集",
+                    title: "",
                     systemName: "pencil",
-                    tint: Color(red: 0.16, green: 0.42, blue: 0.71)
+                    tint: StockManagerTheme.lavender
                 ) {
                     store.itemEditMode = true
                 }
@@ -518,34 +598,32 @@ struct ContentView: View {
                     .font(.headline.weight(.bold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
+                    .padding(.vertical, 18)
                     .background(
                         Capsule()
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        Color(red: 0.79, green: 0.52, blue: 0.16),
-                                        Color(red: 0.67, green: 0.33, blue: 0.10)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
+                            .fill(StockManagerTheme.lavender)
                     )
                 }
                 .buttonStyle(.plain)
                 .tutorialTarget(.shoppingButton)
 
                 ActionFAB(
-                    title: "追加",
+                    title: "",
                     systemName: "plus",
-                    tint: Color(red: 0.18, green: 0.56, blue: 0.32)
+                    tint: StockManagerTheme.lavender
                 ) {
                     itemFormState = ItemFormState(mode: .add, initialName: "")
                 }
                 .tutorialTarget(.itemAddButton)
             }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+        .background(
+            Capsule(style: .continuous)
+                .fill(StockManagerTheme.surface)
+                .shadow(color: StockManagerTheme.shadow, radius: 12, x: 0, y: 5)
+        )
     }
 
     private var errorBinding: Binding<Bool> {
@@ -629,17 +707,14 @@ private struct DrawerPanel: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("StockManager")
-                        .font(.title2.weight(.bold))
-                    Text("ボードを切り替えて在庫を管理")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text("ボード")
+                        .font(.title3.weight(.bold))
                 }
                 Spacer()
                 menuButton
             }
             .padding(.horizontal, 16)
-            .padding(.top, 24)
+            .padding(.top, 20)
 
             List {
                 ForEach(store.sortedBoards) { board in
@@ -683,9 +758,10 @@ private struct DrawerPanel: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(
-            RoundedRectangle(cornerRadius: 0)
-                .fill(Color.platformSystemBackground)
+            UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0, bottomTrailingRadius: 28, topTrailingRadius: 28, style: .continuous)
+                .fill(StockManagerTheme.page)
         )
+        .shadow(color: StockManagerTheme.shadow, radius: 12, x: 4, y: 0)
     }
 
     private var menuButton: some View {
@@ -727,14 +803,10 @@ private struct DrawerPanel: View {
                 onDeleteAll()
             }
         } label: {
-            Circle()
-                .fill(.thinMaterial)
-                .frame(width: 42, height: 42)
-                .overlay {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(Color.primary)
-                }
+            Image(systemName: "ellipsis.vertical")
+                .font(.headline.weight(.bold))
+                .foregroundStyle(.primary)
+                .frame(width: 36, height: 36)
         }
         .buttonStyle(.plain)
     }
@@ -767,7 +839,10 @@ private struct DrawerPanel: View {
             }
         }
         .padding(16)
-        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) {
+            Divider()
+                .padding(.horizontal, 8)
+        }
     }
 
     private func drawerActionLabel(_ title: String, systemName: String) -> some View {
@@ -782,7 +857,7 @@ private struct DrawerPanel: View {
         .padding(.vertical, 14)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.primary.opacity(0.07))
+                .fill(StockManagerTheme.lavenderSurface)
         )
     }
 }
@@ -807,8 +882,7 @@ private struct BoardRow: View {
                     .foregroundStyle(isCurrent ? .white : .primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if isCurrent && isEditing == false {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.white.opacity(0.9))
+                    EmptyView()
                 }
             }
             .padding(.horizontal, 14)
@@ -817,8 +891,8 @@ private struct BoardRow: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(
                         isCurrent
-                        ? Color(red: 0.19, green: 0.45, blue: 0.75)
-                        : Color.primary.opacity(0.06)
+                        ? StockManagerTheme.lavender
+                        : StockManagerTheme.lavenderSurface
                     )
             )
         }
@@ -1070,23 +1144,20 @@ private struct ItemCardView: View {
                     .fill(cardColor)
                     .overlay(
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(Color.black.opacity(colorScheme == .dark ? 0.18 : 0.06), lineWidth: 1)
+                            .strokeBorder(borderColor, lineWidth: 1.2)
                     )
-                    .shadow(color: .black.opacity(colorScheme == .dark ? 0.18 : 0.08), radius: 10, x: 0, y: 6)
+                    .shadow(color: StockManagerTheme.shadow, radius: 6, x: 0, y: 3)
 
                 VStack(spacing: 8) {
                     Spacer(minLength: 0)
                     Text(item.name)
                         .font(.headline.weight(.bold))
-                        .foregroundStyle(Color.primary)
+                        .foregroundStyle(titleColor)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
-                    Text(statusText)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                 }
-                .frame(maxWidth: .infinity, minHeight: 118, maxHeight: 118)
+                .frame(maxWidth: .infinity, minHeight: 98, maxHeight: 98)
                 .padding(.horizontal, 12)
 
                 if isEditing {
@@ -1117,11 +1188,11 @@ private struct ItemCardView: View {
     private var cardColor: Color {
         switch (colorScheme, item.itemStatus) {
         case (.light, .inStock):
-            return Color.white
+            return StockManagerTheme.surface
         case (.light, .highlighted):
-            return Color(red: 1.0, green: 0.97, blue: 0.77)
+            return StockManagerTheme.highlightedFill
         case (.light, .outOfStock):
-            return Color(red: 0.98, green: 0.87, blue: 0.86)
+            return StockManagerTheme.outFill
         case (.dark, .inStock):
             return Color(red: 0.18, green: 0.18, blue: 0.22)
         case (.dark, .highlighted):
@@ -1133,14 +1204,25 @@ private struct ItemCardView: View {
         }
     }
 
-    private var statusText: String {
+    private var borderColor: Color {
         switch item.itemStatus {
         case .inStock:
-            return "在庫側"
+            return StockManagerTheme.stockStroke
         case .highlighted:
-            return "要確認"
+            return StockManagerTheme.highlightedStroke
         case .outOfStock:
-            return "欠品側"
+            return StockManagerTheme.outFill
+        }
+    }
+
+    private var titleColor: Color {
+        switch item.itemStatus {
+        case .inStock:
+            return .primary
+        case .highlighted:
+            return StockManagerTheme.highlightedText
+        case .outOfStock:
+            return StockManagerTheme.outText
         }
     }
 }
@@ -1158,16 +1240,13 @@ private struct ToggleChip: View {
             HStack {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
-                Spacer(minLength: 8)
-                Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
-                    .font(.headline)
             }
-            .foregroundStyle(isOn ? .white : Color.primary)
-            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity)
+            .foregroundStyle(isOn ? .white : StockManagerTheme.lavender)
             .padding(.vertical, 12)
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(isOn ? tint : Color.primary.opacity(0.06))
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(isOn ? tint : StockManagerTheme.lavenderSoft)
             )
         }
         .buttonStyle(.plain)
@@ -1184,15 +1263,12 @@ private struct ActionFAB: View {
         Button {
             action()
         } label: {
-            VStack(spacing: 4) {
-                Image(systemName: systemName)
-                    .font(.title3.weight(.bold))
-                Text(title)
-                    .font(.caption.weight(.semibold))
-            }
+            Image(systemName: systemName)
+                .font(.title3.weight(.bold))
             .foregroundStyle(.white)
-            .frame(width: 72, height: 72)
+            .frame(width: 56, height: 56)
             .background(Circle().fill(tint))
+            .shadow(color: StockManagerTheme.shadow, radius: 8, x: 0, y: 5)
         }
         .buttonStyle(.plain)
     }
@@ -1219,101 +1295,165 @@ private struct EmptyStateView: View {
     }
 }
 
-private struct BoardFormSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
+private struct BoardFormDialog: View {
     let state: BoardFormState
+    let onClose: () -> Void
     let onSave: (String) -> Void
 
     @State private var name: String
 
-    init(state: BoardFormState, onSave: @escaping (String) -> Void) {
+    init(state: BoardFormState, onClose: @escaping () -> Void, onSave: @escaping (String) -> Void) {
         self.state = state
+        self.onClose = onClose
         self.onSave = onSave
         self._name = State(initialValue: state.initialName)
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("ボード名", text: $name)
-                        .onChange(of: name) { _, newValue in
-                            name = newValue.limited(to: 10)
-                        }
-                    HStack {
-                        Spacer()
-                        Text("\(name.count) / 10")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+        VStack(spacing: 18) {
+            HStack {
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                Text(state.mode == .add ? "追加" : "ボード名")
+                    .font(.title3.weight(.bold))
+                Spacer()
+                Color.clear.frame(width: 32, height: 32)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("名前")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(StockManagerTheme.lavender)
+                TextField("名前を入力", text: $name)
+                    .onChange(of: name) { _, newValue in
+                        name = newValue.limited(to: 10)
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .stroke(StockManagerTheme.lavender, lineWidth: 1.4)
+                    )
+                HStack {
+                    Spacer()
+                    Text("\(name.count)/10")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle(state.mode == .add ? "ボード追加" : "ボード名変更")
-            .platformInlineNavigationTitle()
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("キャンセル") {
-                        dismiss()
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
-                        onSave(name)
-                    }
-                }
+
+            Button {
+                onSave(name)
+            } label: {
+                Text("保存")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(name.trimmed().isEmpty ? StockManagerTheme.lavender.opacity(0.35) : StockManagerTheme.lavender)
+                    )
             }
+            .buttonStyle(.plain)
+            .disabled(name.trimmed().isEmpty)
         }
-        .presentationDetents([.medium])
+        .padding(.horizontal, 22)
+        .padding(.vertical, 20)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(StockManagerTheme.surface)
+        )
+        .shadow(color: Color.black.opacity(0.18), radius: 24, x: 0, y: 14)
     }
 }
 
-private struct ItemFormSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
+private struct ItemFormDialog: View {
     let state: ItemFormState
+    let onClose: () -> Void
     let onSave: (String) -> Void
 
     @State private var name: String
 
-    init(state: ItemFormState, onSave: @escaping (String) -> Void) {
+    init(state: ItemFormState, onClose: @escaping () -> Void, onSave: @escaping (String) -> Void) {
         self.state = state
+        self.onClose = onClose
         self.onSave = onSave
         self._name = State(initialValue: state.initialName)
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("アイテム名", text: $name)
-                        .onChange(of: name) { _, newValue in
-                            name = newValue.limited(to: 24)
-                        }
-                    HStack {
-                        Spacer()
-                        Text("\(name.count) / 24")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+        VStack(spacing: 18) {
+            HStack {
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                Text(state.mode.title)
+                    .font(.title3.weight(.bold))
+                Spacer()
+                Color.clear.frame(width: 32, height: 32)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("名前")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(StockManagerTheme.lavender)
+                TextField("名前を入力", text: $name)
+                    .onChange(of: name) { _, newValue in
+                        name = newValue.limited(to: 24)
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .stroke(StockManagerTheme.lavender, lineWidth: 1.4)
+                    )
+                HStack {
+                    Spacer()
+                    Text("\(name.count)/24")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle(state.mode.title)
-            .platformInlineNavigationTitle()
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("キャンセル") {
-                        dismiss()
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
-                        onSave(name)
-                    }
-                }
+
+            Button {
+                onSave(name)
+            } label: {
+                Text("保存")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(name.trimmed().isEmpty ? StockManagerTheme.lavender.opacity(0.35) : StockManagerTheme.lavender)
+                    )
             }
+            .buttonStyle(.plain)
+            .disabled(name.trimmed().isEmpty)
         }
-        .presentationDetents([.medium])
+        .padding(.horizontal, 22)
+        .padding(.vertical, 20)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(StockManagerTheme.surface)
+        )
+        .shadow(color: Color.black.opacity(0.18), radius: 24, x: 0, y: 14)
     }
 }
 
@@ -1409,7 +1549,7 @@ private struct BoardFormState: Identifiable {
 }
 
 private struct ItemFormState: Identifiable {
-    enum Mode {
+    enum Mode: Equatable {
         case add
         case edit(Int64)
 

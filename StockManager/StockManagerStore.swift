@@ -14,6 +14,7 @@ final class StockManagerStore: ObservableObject {
     @Published private(set) var boards: [Board] = []
     @Published private(set) var items: [StockItem] = []
     @Published private(set) var settings = Settings()
+    @Published private(set) var hasLoadedInitialState = false
     @Published var drawerOpen = false
     @Published var boardEditMode = false
     @Published var itemEditMode = false
@@ -26,12 +27,13 @@ final class StockManagerStore: ObservableObject {
     private let persistence: StockManagerPersistence
     let importExportService: StockManagerImportExportService
 
-    init(preview: Bool = false) {
+    init(preview: Bool = false, loadInitialStateOnInit: Bool = true) {
         self.persistence = StockManagerPersistence()
         self.importExportService = StockManagerImportExportService()
         if preview {
             applySnapshot(makeSeedSnapshot(), openSearchForQuery: true)
-        } else {
+            hasLoadedInitialState = true
+        } else if loadInitialStateOnInit {
             loadInitialState()
         }
     }
@@ -39,13 +41,15 @@ final class StockManagerStore: ObservableObject {
     init(
         persistence: StockManagerPersistence,
         importExportService: StockManagerImportExportService,
-        preview: Bool = false
+        preview: Bool = false,
+        loadInitialStateOnInit: Bool = true
     ) {
         self.persistence = persistence
         self.importExportService = importExportService
         if preview {
             applySnapshot(makeSeedSnapshot(), openSearchForQuery: true)
-        } else {
+            hasLoadedInitialState = true
+        } else if loadInitialStateOnInit {
             loadInitialState()
         }
     }
@@ -438,6 +442,13 @@ final class StockManagerStore: ObservableObject {
         return (BoardTransferDocument(data: data), filename)
     }
 
+    func loadInitialStateIfNeeded() {
+        guard hasLoadedInitialState == false else {
+            return
+        }
+        loadInitialState()
+    }
+
     private func loadInitialState() {
         do {
             let result = try persistence.loadOrSeed()
@@ -451,6 +462,7 @@ final class StockManagerStore: ObservableObject {
             startTutorial()
             showBanner("初期データで起動しました。")
         }
+        hasLoadedInitialState = true
     }
 
     private func applySnapshot(_ snapshot: AppDataSnapshot, openSearchForQuery: Bool) {

@@ -9,7 +9,7 @@ import SwiftUI
 
 @main
 struct StockManagerApp: App {
-    @StateObject private var store = StockManagerStore()
+    @StateObject private var store = StockManagerStore(loadInitialStateOnInit: false)
 
     var body: some Scene {
         WindowGroup {
